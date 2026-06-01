@@ -15,13 +15,188 @@ document.addEventListener('DOMContentLoaded', () => {
   const dateInput = document.getElementById('dateInput');
   const progressFill = document.getElementById('progressFill');
 
-  // ---- State ----
-  let todos = JSON.parse(localStorage.getItem('flowup-todos')) || [];
+  // ---- Auth DOM References ----
+  const authScreen = document.getElementById('authScreen');
+  const loginForm = document.getElementById('loginForm');
+  const registerForm = document.getElementById('registerForm');
+  const tabLogin = document.getElementById('tabLogin');
+  const tabRegister = document.getElementById('tabRegister');
+  const loginUsernameInput = document.getElementById('loginUsername');
+  const loginPasswordInput = document.getElementById('loginPassword');
+  const registerUsernameInput = document.getElementById('registerUsername');
+  const registerPasswordInput = document.getElementById('registerPassword');
+  const registerConfirmPasswordInput = document.getElementById('registerConfirmPassword');
+  const loginError = document.getElementById('loginError');
+  const registerError = document.getElementById('registerError');
+  
+  const sidebarProfile = document.getElementById('sidebarProfile');
+  const profileAvatar = document.getElementById('profileAvatar');
+  const profileNameDisplay = document.getElementById('profileNameDisplay');
+  const logoutBtn = document.getElementById('logoutBtn');
+
+  // ---- Database & State ----
+  let users = JSON.parse(localStorage.getItem('flowup-users')) || [];
+  let currentUser = localStorage.getItem('flowup-current-user') || null;
+  let todos = [];
+  let dsaTotalSolved = 0;
+
   let currentFilter = 'all';       // all | active | completed
   let currentCategory = null;      // null | personal | work | health | learning | daily
   let currentSort = 'newest';      // newest | priority | dueDate
   let searchQuery = '';
   let selectedPriority = 'medium';
+
+  // ---- Authentication Core Logic ----
+  function loadUserData(username) {
+    currentUser = username;
+    localStorage.setItem('flowup-current-user', username);
+    
+    // Load specific user's todos and DSA solved count
+    todos = JSON.parse(localStorage.getItem(`flowup-todos-${username}`)) || [];
+    dsaTotalSolved = parseInt(localStorage.getItem(`flowup-dsa-solved-${username}`)) || 0;
+    
+    // Update profile display
+    profileNameDisplay.textContent = username;
+    profileAvatar.textContent = username.charAt(0).toUpperCase();
+    
+    // Update DSA solved counter widget
+    dsaCount.textContent = dsaTotalSolved;
+    
+    // Show main app / hide auth
+    authScreen.classList.add('hidden');
+    
+    // Perform initial render
+    refreshDailyTasks();
+    render();
+  }
+
+  function showAuthScreen() {
+    currentUser = null;
+    localStorage.removeItem('flowup-current-user');
+    authScreen.classList.remove('hidden');
+    
+    // Reset inputs & errors
+    loginUsernameInput.value = '';
+    loginPasswordInput.value = '';
+    registerUsernameInput.value = '';
+    registerPasswordInput.value = '';
+    registerConfirmPasswordInput.value = '';
+    loginError.style.display = 'none';
+    registerError.style.display = 'none';
+  }
+
+  function showError(element, message) {
+    element.textContent = message;
+    element.style.display = 'block';
+  }
+
+  // Auth Tabs Event Listeners
+  tabLogin.addEventListener('click', () => {
+    tabLogin.classList.add('active');
+    tabRegister.classList.remove('active');
+    loginForm.style.display = 'flex';
+    registerForm.style.display = 'none';
+    loginError.style.display = 'none';
+  });
+
+  tabRegister.addEventListener('click', () => {
+    tabRegister.classList.add('active');
+    tabLogin.classList.remove('active');
+    registerForm.style.display = 'flex';
+    loginForm.style.display = 'none';
+    registerError.style.display = 'none';
+  });
+
+  // Sign In Handler
+  loginForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    loginError.style.display = 'none';
+    
+    const username = loginUsernameInput.value.trim();
+    const password = loginPasswordInput.value;
+    
+    if (!username || !password) {
+      showError(loginError, 'All fields are required.');
+      return;
+    }
+    
+    const user = users.find(u => u.username.toLowerCase() === username.toLowerCase());
+    if (!user) {
+      showError(loginError, 'Invalid username or password.');
+      return;
+    }
+    
+    const passwordHash = btoa(password); // Obfuscate password
+    if (user.password !== passwordHash) {
+      showError(loginError, 'Invalid username or password.');
+      return;
+    }
+    
+    loadUserData(user.username);
+  });
+
+  // Sign Up Handler
+  registerForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    registerError.style.display = 'none';
+    
+    const username = registerUsernameInput.value.trim();
+    const password = registerPasswordInput.value;
+    const confirmPassword = registerConfirmPasswordInput.value;
+    
+    if (!username || !password || !confirmPassword) {
+      showError(registerError, 'All fields are required.');
+      return;
+    }
+    
+    if (password.length < 6) {
+      showError(registerError, 'Password must be at least 6 characters.');
+      return;
+    }
+    
+    if (password !== confirmPassword) {
+      showError(registerError, 'Passwords do not match.');
+      return;
+    }
+    
+    // Check username conflict
+    const userExists = users.some(u => u.username.toLowerCase() === username.toLowerCase());
+    if (userExists) {
+      showError(registerError, 'Username is already taken.');
+      return;
+    }
+    
+    const passwordHash = btoa(password);
+    const newUser = {
+      username,
+      password: passwordHash,
+      createdAt: new Date().toISOString()
+    };
+    
+    users.push(newUser);
+    localStorage.setItem('flowup-users', JSON.stringify(users));
+    
+    // Migrate Guest tasks if any exist
+    const guestTodos = JSON.parse(localStorage.getItem('flowup-todos')) || [];
+    if (guestTodos.length > 0) {
+      localStorage.setItem(`flowup-todos-${username}`, JSON.stringify(guestTodos));
+      
+      const guestDsa = localStorage.getItem('flowup-dsa-solved') || '0';
+      localStorage.setItem(`flowup-dsa-solved-${username}`, guestDsa);
+      
+      localStorage.removeItem('flowup-todos');
+      localStorage.removeItem('flowup-dsa-solved');
+    }
+    
+    loadUserData(username);
+  });
+
+  // Sign Out Handler
+  logoutBtn.addEventListener('click', () => {
+    if (confirm('Are you sure you want to sign out?')) {
+      showAuthScreen();
+    }
+  });
 
   // ---- Priority Buttons ----
   document.querySelectorAll('.priority-btn').forEach(btn => {
@@ -189,7 +364,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ---- Save to localStorage ----
   function save() {
-    localStorage.setItem('flowup-todos', JSON.stringify(todos));
+    if (currentUser) {
+      localStorage.setItem(`flowup-todos-${currentUser}`, JSON.stringify(todos));
+    }
   }
 
   // ---- Get Filtered & Sorted List ----
@@ -342,14 +519,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const dsaAddBtn = document.getElementById('dsaAddBtn');
   const dsaResetBtn = document.getElementById('dsaResetBtn');
 
-  let dsaTotalSolved = parseInt(localStorage.getItem('flowup-dsa-solved')) || 0;
   dsaCount.textContent = dsaTotalSolved;
 
   dsaAddBtn.addEventListener('click', () => {
     const val = parseInt(dsaNewInput.value) || 0;
     if (val > 0) {
       dsaTotalSolved += val;
-      localStorage.setItem('flowup-dsa-solved', dsaTotalSolved);
+      if (currentUser) {
+        localStorage.setItem(`flowup-dsa-solved-${currentUser}`, dsaTotalSolved);
+      }
       
       // Animate counting up for extra polish
       animateCount(dsaCount, dsaTotalSolved - val, dsaTotalSolved, 300);
@@ -362,7 +540,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (confirm('Reset your total DSA questions count to 0?')) {
       const prev = dsaTotalSolved;
       dsaTotalSolved = 0;
-      localStorage.setItem('flowup-dsa-solved', dsaTotalSolved);
+      if (currentUser) {
+        localStorage.setItem(`flowup-dsa-solved-${currentUser}`, dsaTotalSolved);
+      }
       animateCount(dsaCount, prev, 0, 300);
     }
   });
@@ -420,6 +600,9 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // ---- Initial Render ----
-  refreshDailyTasks();
-  render();
+  if (currentUser) {
+    loadUserData(currentUser);
+  } else {
+    showAuthScreen();
+  }
 });
