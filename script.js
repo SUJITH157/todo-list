@@ -18,7 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // ---- State ----
   let todos = JSON.parse(localStorage.getItem('flowup-todos')) || [];
   let currentFilter = 'all';       // all | active | completed
-  let currentCategory = null;      // null | personal | work | health | learning
+  let currentCategory = null;      // null | personal | work | health | learning | daily
   let currentSort = 'newest';      // newest | priority | dueDate
   let searchQuery = '';
   let selectedPriority = 'medium';
@@ -63,7 +63,16 @@ document.addEventListener('DOMContentLoaded', () => {
   // ---- Toggle Complete ----
   function toggleTask(id) {
     const task = todos.find(t => t.id === id);
-    if (task) { task.completed = !task.completed; save(); render(); }
+    if (task) {
+      task.completed = !task.completed;
+      if (task.completed) {
+        task.completedAtDate = new Date().toDateString();
+      } else {
+        delete task.completedAtDate;
+      }
+      save();
+      render();
+    }
   }
 
   // ---- Delete Task ----
@@ -260,6 +269,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('countWork').textContent = todos.filter(t => t.category === 'work').length;
     document.getElementById('countHealth').textContent = todos.filter(t => t.category === 'health').length;
     document.getElementById('countLearning').textContent = todos.filter(t => t.category === 'learning').length;
+    document.getElementById('countDaily').textContent = todos.filter(t => t.category === 'daily').length;
 
     // Empty state
     if (filtered.length === 0) {
@@ -378,6 +388,38 @@ document.addEventListener('DOMContentLoaded', () => {
     }, stepTime);
   }
 
+  // ---- Refresh Daily Tasks ----
+  function refreshDailyTasks() {
+    const today = new Date().toDateString();
+    let updated = false;
+    todos.forEach(task => {
+      if (task.category === 'daily' && task.completed) {
+        if (!task.completedAtDate || task.completedAtDate !== today) {
+          task.completed = false;
+          delete task.completedAtDate;
+          updated = true;
+        }
+      }
+    });
+    if (updated) {
+      save();
+    }
+  }
+
+  // Refresh daily tasks on page focus or tab visibility changes
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      refreshDailyTasks();
+      render();
+    }
+  });
+
+  window.addEventListener('focus', () => {
+    refreshDailyTasks();
+    render();
+  });
+
   // ---- Initial Render ----
+  refreshDailyTasks();
   render();
 });
